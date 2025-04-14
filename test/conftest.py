@@ -406,10 +406,12 @@ class MockClientServicer(api_grpc.ModalClientBase):
                     is_method=True,
                     use_method_name=method_name,
                     function_schema=method_definition.function_schema,
+                    api_hostname="https://api.modal.com",
                 )
                 for method_name, method_definition in definition.method_definitions.items()
             },
             function_schema=definition.function_schema,
+            api_hostname="https://api.modal.com",
         )
 
     def get_object_metadata(self, object_id) -> api_pb2.Object:
@@ -925,6 +927,7 @@ class MockClientServicer(api_grpc.ModalClientBase):
                     web_url=base_function.web_url,
                     use_function_id=function_id,
                     use_method_name="",
+                    api_hostname="https://api.modal.com",
                 ),
             )
         )
@@ -991,6 +994,7 @@ class MockClientServicer(api_grpc.ModalClientBase):
                 function_type=method_definition.function_type,
                 web_url=method_web_url,
                 function_schema=method_definition.function_schema,
+                api_hostname="https://api.modal.com",
             )
         await stream.send_message(
             api_pb2.FunctionPrecreateResponse(
@@ -1003,6 +1007,7 @@ class MockClientServicer(api_grpc.ModalClientBase):
                     use_method_name=req.use_method_name,
                     method_handle_metadata=method_handle_metadata,
                     function_schema=req.function_schema,
+                    api_hostname="https://api.modal.com",
                 ),
             )
         )
@@ -1066,11 +1071,13 @@ class MockClientServicer(api_grpc.ModalClientBase):
                             is_method=True,
                             use_method_name=method_name,
                             function_schema=method_definition.function_schema,
+                            api_hostname="https://api.modal.com",
                         )
                         for method_name, method_definition in function_defn.method_definitions.items()
                     },
                     class_parameter_info=function_defn.class_parameter_info,
                     function_schema=function_defn.function_schema,
+                    api_hostname="https://api.modal.com",
                 ),
             )
         )
