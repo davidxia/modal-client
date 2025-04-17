@@ -20,6 +20,7 @@ from typing import (
     Union,
 )
 
+from google.protobuf.message import Message
 from grpclib import GRPCError, Status
 from synchronicity.async_wrap import asynccontextmanager
 
@@ -119,6 +120,7 @@ class _Volume(_Object, type_prefix="vo"):
     """
 
     _lock: Optional[asyncio.Lock] = None
+    _version: "typing.Optional[modal_proto.api_pb2.VolumeFsVersion.ValueType]"
 
     async def _get_lock(self):
         # To (mostly*) prevent multiple concurrent operations on the same volume, which can cause problems under
@@ -171,9 +173,17 @@ class _Volume(_Object, type_prefix="vo"):
                 version=version,
             )
             response = await resolver.client.stub.VolumeGetOrCreate(req)
-            self._hydrate(response.volume_id, resolver.client, None)
+            self._hydrate(response.volume_id, resolver.client, response)
 
         return _Volume._from_loader(_load, "Volume()", hydrate_lazily=True)
+
+    def _hydrate_metadata(self, metadata: Optional[Message]):
+        if metadata and isinstance(metadata, api_pb2.VolumeGetOrCreateResponse):
+            self._version = metadata.version
+        else:
+            raise TypeError(
+                "_hydrate_metadata() requires an `api_pb2.VolumeGetOrCreateResponse` to determine volume version"
+            )
 
     @classmethod
     @asynccontextmanager
@@ -209,7 +219,7 @@ class _Volume(_Object, type_prefix="vo"):
         async with TaskContext() as tc:
             request = api_pb2.VolumeHeartbeatRequest(volume_id=response.volume_id)
             tc.infinite_loop(lambda: client.stub.VolumeHeartbeat(request), sleep=_heartbeat_sleep)
-            yield cls._new_hydrated(response.volume_id, client, None, is_another_app=True)
+            yield cls._new_hydrated(response.volume_id, client, response, is_another_app=True)
 
     @staticmethod
     @renamed_parameter((2024, 12, 18), "label", "name")
