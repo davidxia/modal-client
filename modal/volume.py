@@ -513,14 +513,8 @@ class _Volume(_Object, type_prefix="vo"):
             batch.put_file(io.BytesIO(b"some data"), "/foobar")
         ```
         """
-        from modal_proto.api_pb2 import VolumeFsVersion
+        return _AbstractVolumeUploadContextManager.resolve(self._version, self.object_id, self._client, force=force)
 
-        if self._version in [None, VolumeFsVersion.VOLUME_FS_VERSION_UNSPECIFIED, VolumeFsVersion.VOLUME_FS_VERSION_V1]:
-            return _VolumeUploadContextManager(self.object_id, self._client, force=force)
-        elif self._version == VolumeFsVersion.VOLUME_FS_VERSION_V2:
-            return _VolumeUploadContextManager2(self.object_id, self._client, force=force)
-        else:
-            raise RuntimeError(f"unsupported volume version: {self._version}")
 
     @live_method
     async def _instance_delete(self):
@@ -573,6 +567,24 @@ class _AbstractVolumeUploadContextManager:
         recursive: bool = True,
     ):
         ...
+
+    @staticmethod
+    def resolve(
+        version: modal_proto.api_pb2.VolumeFsVersion.ValueType,
+        object_id: str,
+        client,
+        progress_cb: Optional[Callable[..., Any]] = None,
+        force: bool = False
+    ) -> "_AbstractVolumeUploadContextManager":
+        from modal_proto.api_pb2 import VolumeFsVersion
+
+        if version in [None, VolumeFsVersion.VOLUME_FS_VERSION_UNSPECIFIED, VolumeFsVersion.VOLUME_FS_VERSION_V1]:
+            return _VolumeUploadContextManager(object_id, client, progress_cb=progress_cb, force=force)
+        elif version == VolumeFsVersion.VOLUME_FS_VERSION_V2:
+            return _VolumeUploadContextManager2(object_id, client, progress_cb=progress_cb, force=force)
+        else:
+            raise RuntimeError(f"unsupported volume version: {version}")
+
 
 AbstractVolumeUploadContextManager = synchronize_api(_AbstractVolumeUploadContextManager)
 
