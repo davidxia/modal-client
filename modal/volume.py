@@ -179,12 +179,12 @@ class _Volume(_Object, type_prefix="vo"):
                 version=version,
             )
             response = await resolver.client.stub.VolumeGetOrCreate(req)
-            self._hydrate(response.volume_id, resolver.client, response)
+            self._hydrate(response.volume_id, resolver.client, response.metadata)
 
         return _Volume._from_loader(_load, "Volume()", hydrate_lazily=True)
 
     def _hydrate_metadata(self, metadata: Optional[Message]):
-        if metadata and isinstance(metadata, api_pb2.VolumeGetOrCreateResponse):
+        if metadata and isinstance(metadata, api_pb2.VolumeMetadata):
             self._version = metadata.version
         else:
             raise TypeError(
@@ -225,7 +225,7 @@ class _Volume(_Object, type_prefix="vo"):
         async with TaskContext() as tc:
             request = api_pb2.VolumeHeartbeatRequest(volume_id=response.volume_id)
             tc.infinite_loop(lambda: client.stub.VolumeHeartbeat(request), sleep=_heartbeat_sleep)
-            yield cls._new_hydrated(response.volume_id, client, response, is_another_app=True)
+            yield cls._new_hydrated(response.volume_id, client, response.metadata, is_another_app=True)
 
     @staticmethod
     @renamed_parameter((2024, 12, 18), "label", "name")
