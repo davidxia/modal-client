@@ -19,7 +19,7 @@ from modal.cli._download import _volume_download
 from modal.cli.utils import ENV_OPTION, YES_OPTION, display_table, timestamp_to_local
 from modal.client import _Client
 from modal.environments import ensure_env
-from modal.volume import _Volume, _VolumeUploadContextManager, _AbstractVolumeUploadContextManager
+from modal.volume import _AbstractVolumeUploadContextManager, _Volume
 from modal_proto import api_pb2
 
 volume_cli = Typer(

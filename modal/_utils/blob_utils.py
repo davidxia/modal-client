@@ -11,7 +11,6 @@ from contextlib import AbstractContextManager, contextmanager
 from io import BytesIO, FileIO
 from pathlib import Path, PurePosixPath
 from typing import (
-    IO,
     TYPE_CHECKING,
     Any,
     BinaryIO,
