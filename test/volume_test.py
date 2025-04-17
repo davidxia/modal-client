@@ -157,6 +157,39 @@ async def test_volume_batch_upload(servicer, client, tmp_path, version):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("version", VERSIONS)
+async def test_volume_batch_upload_bytesio(servicer, client, tmp_path, version):
+    async with modal.Volume.ephemeral(client=client, version=version) as vol:
+        with vol.batch_upload() as batch:
+            batch.put_file(io.BytesIO(b"data from a file-like object"), "/filelike", mode=0o600)
+        object_id = vol.object_id
+
+    assert servicer.volumes[object_id].files.keys() == {
+        "/filelike",
+    }
+    assert servicer.volumes[object_id].files["/filelike"].data == b"data from a file-like object"
+    assert servicer.volumes[object_id].files["/filelike"].mode == 0o600
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("version", VERSIONS)
+async def test_volume_batch_upload_opened_file(servicer, client, tmp_path, version):
+    local_file_path = tmp_path / "some_file"
+    local_file_path.write_text("hello world")
+
+    async with modal.Volume.ephemeral(client=client, version=version) as vol:
+        with open(local_file_path, "rb") as fp, vol.batch_upload() as batch:
+            batch.put_file(fp, "/filelike2", mode=0o600)
+        object_id = vol.object_id
+
+    assert servicer.volumes[object_id].files.keys() == {
+        "/filelike2",
+    }
+    assert servicer.volumes[object_id].files["/filelike2"].data == b"hello world"
+    assert servicer.volumes[object_id].files["/filelike2"].mode == 0o600
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("version", VERSIONS)
 async def test_volume_batch_upload_force(servicer, client, tmp_path, version):
     local_file_path = tmp_path / "some_file"
     local_file_path.write_text("hello world")

@@ -382,7 +382,7 @@ def get_file_upload_spec_from_fileobj(fp: BinaryIO, mount_filename: PurePosixPat
         mode,
     )
 
-_FileUploadSource2 = Callable[[], ContextManager[IO[bytes]]]
+_FileUploadSource2 = Callable[[], ContextManager[BinaryIO]]
 
 @dataclasses.dataclass
 class FileUploadSpec2:
@@ -427,7 +427,10 @@ class FileUploadSpec2:
             fileno = source_fp.fileno()
             def source():
                 new_fd = os.dup(fileno)
-                return os.fdopen(new_fd, "rb")
+                fp = os.fdopen(new_fd, "rb")
+                fp.seek(0)
+                return fp
+
         except OSError:
             # `.fileno()` not available; assume BytesIO-like type
             source_fp = cast(BytesIO, source_fp)

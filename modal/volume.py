@@ -42,8 +42,10 @@ from ._utils.blob_utils import (
     get_file_upload_spec_from_fileobj,
     get_file_upload_spec_from_path,
 )
+from ._utils.bytes_io_segment_payload import BytesIOSegmentPayload
 from ._utils.deprecation import deprecation_error, deprecation_warning, renamed_parameter
 from ._utils.grpc_utils import retry_transient_errors
+from ._utils.http_utils import ClientSessionRegistry
 from ._utils.name_utils import check_object_name
 from .client import _Client
 from .config import logger
@@ -552,6 +554,7 @@ class _AbstractVolumeUploadContextManager:
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         ...
 
+
     def put_file(
         self,
         local_file: Union[Path, str, BinaryIO, BytesIO],
@@ -874,10 +877,7 @@ class _VolumeUploadContextManager2(_AbstractVolumeUploadContextManager):
             if not response.missing_blocks:
                 break
 
-            # TODO(dflemstr): call `self._progress_cb` based on `num_blocks_total - len(response.missing_blocks)`
-            # self._progress_cb()
-
-            await _put_missing_blocks(file_specs, response.missing_blocks, put_responses)
+            await _put_missing_blocks(file_specs, response.missing_blocks, put_responses, self._progress_cb)
         else:
             raise RuntimeError("Did not succeed at uploading all files despite supplying all missing blocks")
 
@@ -892,55 +892,50 @@ async def _put_missing_blocks(
     # TODO(dflemstr): Element type is `api_pb2.VolumePutFiles2Response.MissingBlock` but synchronicity gets confused
     # by the nested class (?)
     missing_blocks: list,
-    put_responses: dict[bytes, bytes]
+    put_responses: dict[bytes, bytes],
+    progress_cb: Callable[..., Any]
 ):
-    # Lazy load slow dep only if this code path is triggered
-    import aiohttp
+    async def put_missing_block(
+        # TODO(dflemstr): Type is `api_pb2.VolumePutFiles2Response.MissingBlock` but synchronicity gets confused
+        # by the nested class (?)
+        missing_block
+    ) -> (bytes, bytes):
+        assert isinstance(missing_block, api_pb2.VolumePutFiles2Response.MissingBlock)
 
-    async with aiohttp.ClientSession() as session:
-        async def put_missing_block(
-            # TODO(dflemstr): Type is `api_pb2.VolumePutFiles2Response.MissingBlock` but synchronicity gets confused
-            # by the nested class (?)
-            missing_block
-        ) -> (bytes, bytes):
-            assert isinstance(missing_block, api_pb2.VolumePutFiles2Response.MissingBlock)
+        file_spec = file_specs[missing_block.file_index]
+        # TODO(dflemstr): What if the underlying file has changed here in the meantime; should we check the
+        #  hash again just to be sure?
+        block_sha256 = file_spec.blocks_sha256[missing_block.block_index]
+        block_start = missing_block.block_index * BLOCK_SIZE
+        block_length = min(BLOCK_SIZE, file_spec.size - block_start)
 
-            missing_block_file_spec = file_specs[missing_block.file_index]
-            # TODO(dflemstr): What if the underlying file has changed here in the meantime; should we check the
-            #  hash again just to be sure?
-            missing_block_sha256 = missing_block_file_spec.blocks_sha256[missing_block.block_index]
-            missing_block_start = missing_block.block_index * BLOCK_SIZE
+        progress_name = f"{file_spec.path} block {missing_block.block_index + 1} / {len(file_spec.blocks_sha256)}"
+        progress_task_id = progress_cb(name=progress_name, size=file_spec.size)
 
-            with missing_block_file_spec.source() as source_fp:
-                data = b""
-                num_bytes_read = 0
+        with file_spec.source() as source_fp:
+            payload = BytesIOSegmentPayload(
+                source_fp,
+                block_start,
+                block_length,
+                progress_report_cb=functools.partial(progress_cb, progress_task_id)
+            )
 
-                source_fp.seek(missing_block_start)
+            async with ClientSessionRegistry.get_session().put(
+                missing_block.put_url,
+                data=payload,
+            ) as response:
+                response.raise_for_status()
+                resp_data = await response.content.read()
 
-                while num_bytes_read < BLOCK_SIZE:
-                    # Most of the time, this will be a single read() call, so don't optimize too much for this
-                    # loop having more than one iteration.
-                    chunk = source_fp.read(BLOCK_SIZE - num_bytes_read)
+        return block_sha256, resp_data
 
-                    if not chunk:
-                        break
-
-                    data += chunk
-                    num_bytes_read += len(chunk)
-
-                missing_block_response = await session.put(missing_block.put_url, data=data)
-                missing_block_response.raise_for_status()
-                missing_block_response_data = await missing_block_response.content.read()
-
-            return missing_block_sha256, missing_block_response_data
-
-        tasks = [
-            asyncio.create_task(put_missing_block(missing_block))
-            for missing_block in missing_blocks
-        ]
-        for task_result in asyncio.as_completed(tasks):
-            block_sha256, put_response = await task_result
-            put_responses[block_sha256] = put_response
+    tasks = [
+        asyncio.create_task(put_missing_block(missing_block))
+        for missing_block in missing_blocks
+    ]
+    for task_result in asyncio.as_completed(tasks):
+        digest, resp = await task_result
+        put_responses[digest] = resp
 
 
 def _open_files_error_annotation(mount_path: str) -> Optional[str]:
